@@ -1,0 +1,22 @@
+# Core data + ML stack
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.4.2
+joblib==1.4.2
+
+# Kafka client (kafka-python-ng is the maintained fork; same `from kafka import ...` API, Python 3.12 compatible)
+kafka-python-ng==2.2.3
+
+# MySQL + SQLAlchemy stack
+SQLAlchemy==2.0.30
+PyMySQL==1.1.1
+cryptography==48.0.0
+
+# Configuration and notebooks
+python-dotenv==1.0.1
+jupyter==1.0.0
+ipykernel==7.2.0
+
+# Visualization for EDA notebooks
+matplotlib==3.8.4
+seaborn==0.13.2
