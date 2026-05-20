@@ -1,5 +1,4 @@
 """Kafka producer that streams test.csv rows as JSON events."""
-# ES: Producer de Kafka que streamea filas de test.csv como eventos JSON
 
 import argparse
 import json
@@ -17,13 +16,11 @@ from src.config import (KAFKA_BOOTSTRAP, KAFKA_TOPIC,
 from src.paths import DATA_PROCESSED
 
 # Output JSON field order matches what the consumer/validator expects
-# ES: El orden de campos coincide con lo que espera el consumer/validador
 OUTPUT_FIELDS = ["country", "year", "gdp", "family", "health",
                  "freedom", "generosity", "corruption", "actual_happiness_score"]
 
 def build_event(row: pd.Series) -> dict:
     """Build a JSON-ready event from a test.csv row."""
-    # ES: Construye un evento listo para JSON a partir de una fila de test.csv
     return {
         "country": str(row["country"]),
         "year": int(row["year"]),
@@ -38,7 +35,6 @@ def build_event(row: pd.Series) -> dict:
 
 def corrupt_event(event: dict) -> dict:
     """Randomly damage an event to trigger consumer validation paths."""
-    # ES: Daña un evento al azar para probar las rutas de validación del consumer
     mode = random.choice(["drop_field", "type_swap", "out_of_range"])
     bad = dict(event)
     if mode == "drop_field":
@@ -51,7 +47,6 @@ def corrupt_event(event: dict) -> dict:
 
 def main(clean: bool) -> None:
     """Main loop: read test.csv and emit events."""
-    # ES: Loop principal: lee test.csv y emite eventos
     test_path = DATA_PROCESSED / "test.csv"
     if not test_path.exists():
         sys.exit(f"FAIL: {test_path} no existe. Ejecuta Fase A primero.")
@@ -67,7 +62,6 @@ def main(clean: bool) -> None:
     for i, raw_row in enumerate(df.to_dict(orient="records"), start=1):
         event = build_event(pd.Series(raw_row))
         # Inject noise occasionally to exercise consumer validation
-        # ES: Inyecta ruido ocasionalmente para ejercitar la validación del consumer
         if not clean and random.random() < PRODUCER_NOISE_RATIO:
             event = corrupt_event(event)
         producer.send(KAFKA_TOPIC, value=event)
