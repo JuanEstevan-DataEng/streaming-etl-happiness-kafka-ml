@@ -1,329 +1,361 @@
-# Guía Completa: Dashboard en Looker Studio (Google Data Studio)
+# Complete Guide: Dashboard in Looker Studio (Google Data Studio)
 
-Este documento cubre **todo el flujo** para construir el dashboard del workshop: desde exponer MySQL con ngrok, crear el usuario de Looker, conectar la fuente de datos, hasta el paso a paso de cada una de las 8 gráficas con nombre exacto, query, dimensiones, métricas y estilo.
-
----
-
-## Requisitos previos
-
-- Infraestructura levantada con `docker compose up -d` (contenedores Zookeeper, Kafka y MySQL corriendo).
-- Schema MySQL inicializado automáticamente desde `sql/create_tables.sql` (sucede en el primer arranque del contenedor).
-- ngrok instalado y autenticado.
-- Cuenta Google para Looker Studio.
-- Al menos un run de streaming completo (`python kafka/consumer.py` + `python kafka/producer.py`) para que las tablas tengan datos.
-- Tener `sql/kpis.sql` abierto en paralelo para copiar las 8 queries.
+This document covers **the full flow** required to build the workshop dashboard: from exposing MySQL through ngrok, creating the Looker user, connecting the data source, all the way to a step-by-step recipe for each of the 8 charts including exact name, query, dimensions, metrics and styling.
 
 ---
 
-# PARTE A — Setup de la fuente de datos
+## Prerequisites
 
-## Paso 1 — Exponer MySQL con ngrok
+- Infrastructure up and running via `docker compose up -d` (Zookeeper, Kafka and MySQL containers).
+- MySQL schema automatically initialized from `sql/create_tables.sql` (happens on first container boot).
+- ngrok installed and authenticated.
+- Google account for Looker Studio.
+- At least one complete streaming run (`python kafka/consumer.py` + `python kafka/producer.py`) so the tables contain data.
+- Keep `sql/kpis.sql` open in parallel to copy the 8 queries.
 
-1. En una terminal nueva: `ngrok tcp 3307` (el contenedor MySQL publica el puerto host 3307 → contenedor 3306).
-2. Copia el host:port que devuelve ngrok (ej. `0.tcp.ngrok.io:14523`).
+---
 
-## Paso 2 — Crear usuario read-only para Looker
+# PART A — Data source setup
 
-SQL a ejecutar:
+## Step 1 — Expose MySQL via ngrok
+
+1. In a new terminal: `ngrok tcp 3307` (the MySQL container publishes host port 3307 → container port 3306).
+2. Copy the `host:port` returned by ngrok (e.g. `0.tcp.ngrok.io:14523`).
+
+## Step 2 — Create a read-only user for Looker
+
+SQL to execute:
 
 ```sql
-CREATE USER 'looker'@'%' IDENTIFIED BY 'looker_pwd_changeme';
+CREATE USER IF NOT EXISTS 'looker'@'%' IDENTIFIED BY 'looker_pwd_changeme';
 GRANT SELECT ON happiness.* TO 'looker'@'%';
 FLUSH PRIVILEGES;
 ```
 
-Comando:
+**Option A — single command (recommended):** run it directly without an intermediate file. The password is hardcoded and must match the one in `.env` (default `changeme_root`):
 
 ```bash
-docker exec -i ws3_mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD < grant_looker.sql
+docker exec -i ws3_mysql mysql -uroot -pchangeme_root happiness <<'SQL'
+CREATE USER IF NOT EXISTS 'looker'@'%' IDENTIFIED BY 'looker_pwd_changeme';
+GRANT SELECT ON happiness.* TO 'looker'@'%';
+FLUSH PRIVILEGES;
+SQL
 ```
 
-## Paso 3 — Conectar Looker Studio a MySQL
+> ⚠️ **If you get `ERROR 1045 (28000): Access denied for user 'root'@'localhost' (using password: YES)`**, it is because `$MYSQL_ROOT_PASSWORD` is not exported in the host shell (only `docker compose` reads it from `.env`). To avoid this, either hardcode the password as above, or load `.env` into the current session first:
+>
+> ```bash
+> set -a && source .env && set +a
+> docker exec -i ws3_mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" happiness <<'SQL'
+> CREATE USER IF NOT EXISTS 'looker'@'%' IDENTIFIED BY 'looker_pwd_changeme';
+> GRANT SELECT ON happiness.* TO 'looker'@'%';
+> FLUSH PRIVILEGES;
+> SQL
+> ```
 
-1. Abrir `lookerstudio.google.com` → **Create** → **Data source** → **MySQL**.
-2. Completar:
+**Option B — using a SQL file:** first create `grant_looker.sql` with the SQL block above and then run:
+
+```bash
+docker exec -i ws3_mysql mysql -uroot -pchangeme_root happiness < grant_looker.sql
+```
+
+**Verification** that the user was created and can read:
+
+```bash
+docker exec -i ws3_mysql mysql -ulooker -plooker_pwd_changeme happiness \
+  -e "SELECT COUNT(*) AS rows_in_fact FROM fact_predictions;"
+```
+
+It should return a single row with the number of predictions loaded. If the query responds correctly, the credentials are ready to be used in Looker Studio.
+
+## Step 3 — Connect Looker Studio to MySQL
+
+1. Open `lookerstudio.google.com` → **Create** → **Data source** → **MySQL**.
+2. Fill in:
    - **Host:** `0.tcp.ngrok.io`
-   - **Port:** el que devolvió ngrok (ej. `14523`)
+   - **Port:** the one returned by ngrok (e.g. `14523`)
    - **Database:** `happiness`
    - **User:** `looker`
    - **Password:** `looker_pwd_changeme`
 3. Click **Authenticate** → **Connect**.
-4. Renombrar la fuente a `happiness@ngrok` para usarla en las gráficas.
+4. Rename the data source to `happiness@ngrok` so it can be referenced from each chart.
 
 ---
 
-# PARTE B — Construcción de las 8 gráficas
+# PART B — Building the 8 charts
 
-## Convención general para las 8 gráficas
+## General convention for all 8 charts
 
-Para **cada** KPI, el flujo en Looker Studio es:
+For **every** KPI, the Looker Studio flow is:
 
-1. **Insert → Chart** y elegir el tipo indicado en la tabla.
-2. En el panel **DATA** (derecha), click en la fuente de datos actual → **+ Add data source** (si aún no está conectada) → o seleccionar la fuente `happiness@ngrok`.
-3. Al elegir la tabla, marcar la opción **CUSTOM QUERY** y pegar la query correspondiente de `sql/kpis.sql`.
-4. Click **ADD** → Looker mostrará los campos detectados.
-5. Configurar **Dimension** y **Metric** según se indica en cada sección.
-6. Pasar al panel **STYLE** y aplicar las recomendaciones de estilo.
-7. Renombrar el chart haciendo doble click en el header → escribir el **nombre exacto** indicado.
+1. **Insert → Chart** and pick the chart type listed in the table.
+2. In the **DATA** panel (right side), click the current data source → **+ Add data source** (if not already connected) → or select `happiness@ngrok`.
+3. When selecting the table, tick the **CUSTOM QUERY** option and paste the matching query from `sql/kpis.sql`.
+4. Click **ADD** → Looker will show the detected fields.
+5. Configure **Dimension** and **Metric** as indicated in each section.
+6. Switch to the **STYLE** panel and apply the styling recommendations.
+7. Rename the chart by double-clicking its header → type the **exact name** listed below.
 
-> **Paleta global recomendada:**
-> - Rojo errores: `#D32F2F`
-> - Verde aciertos / VALID: `#388E3C`
-> - Naranja advertencia / INVALID_VALUES: `#F57C00`
-> - Gris neutro / INVALID_SCHEMA: `#616161`
-> - Morado predicción / PREDICTION_ERROR: `#7B1FA2`
-> - Azul referencia: `#1976D2`
+> **Recommended global palette:**
+> - Error red: `#D32F2F`
+> - Success green / VALID: `#388E3C`
+> - Warning orange / INVALID_VALUES: `#F57C00`
+> - Neutral grey / INVALID_SCHEMA: `#616161`
+> - Prediction purple / PREDICTION_ERROR: `#7B1FA2`
+> - Reference blue: `#1976D2`
 
 ---
 
-## KPI 1 — `MAE Global` (Scorecard)
+## KPI 1 — `Global MAE` (Scorecard)
 
-**Propósito:** mostrar de un solo vistazo qué tan lejos están las predicciones del valor real, promediadas sobre todos los eventos VALID.
+**Purpose:** show at a glance how far the predictions are from the actual values, averaged across all VALID events.
 
-**Configuración en Looker Studio:**
+**Looker Studio configuration:**
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
 | **Chart type** | Scorecard |
-| **Nombre del componente** | `MAE Global` |
+| **Component name** | `Global MAE` |
 | **Custom Query** | `SELECT AVG(ABS(prediction_error)) AS mae_global FROM fact_predictions;` |
-| **Metric** | `mae_global` (tipo Number, agregación `Auto` o `Average` — la query ya agrega) |
-| **Dimension** | _(ninguna)_ |
-| **Comparison metric** | desactivada |
+| **Metric** | `mae_global` (Number type, aggregation `Auto` or `Average` — the query already aggregates) |
+| **Dimension** | _(none)_ |
+| **Comparison metric** | disabled |
 
-**Estilo:**
+**Style:**
 - Decimal places: `3`.
 - Number format: `Number`.
 - Label: `MAE`.
-- Color del número: `#D32F2F` si el valor > 0.5, `#388E3C` si ≤ 0.5 (usar **Conditional formatting** → "Single color" → rule `mae_global > 0.5`).
-- Background: blanco. Border: 1 px gris.
+- Number color: `#D32F2F` if value > 0.5, `#388E3C` if ≤ 0.5 (use **Conditional formatting** → "Single color" → rule `mae_global > 0.5`).
+- Background: white. Border: 1 px grey.
 
-**Lectura esperada:** un único número alrededor de `0.4–0.5` (valor offline en el modelo entrenado).
+**Expected read:** a single number around `0.4–0.5` (the offline value produced by the trained model).
 
 ---
 
-## KPI 2 — `Predicciones por País` (Bar chart horizontal)
+## KPI 2 — `Predictions by Country` (Horizontal bar chart)
 
-**Propósito:** ver qué países han recibido más eventos procesados con éxito.
+**Purpose:** see which countries have received the most successfully processed events.
 
-**Configuración en Looker Studio:**
+**Looker Studio configuration:**
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
 | **Chart type** | Bar chart (horizontal) |
-| **Nombre del componente** | `Predicciones por País` |
-| **Custom Query** | KPI 2 de `sql/kpis.sql` |
+| **Component name** | `Predictions by Country` |
+| **Custom Query** | KPI 2 from `sql/kpis.sql` |
 | **Dimension** | `country_name` |
 | **Metric** | `n_predictions` (SUM) |
-| **Sort** | `n_predictions` descendente |
+| **Sort** | `n_predictions` descending |
 | **Rows per page** | 20 |
 
-**Estilo:**
+**Style:**
 - Single color bars: `#1976D2`.
-- Mostrar data labels al final de cada barra.
-- Y-axis label: `País`. X-axis label: `# eventos VALID`.
-- Eje X con grid lines gris claro.
+- Show data labels at the end of each bar.
+- Y-axis label: `Country`. X-axis label: `# VALID events`.
+- X-axis with light grey grid lines.
 
-**Lectura esperada:** los países con más años cubiertos (potencialmente hasta 5: 2015–2019) aparecen primero.
+**Expected read:** countries that appear in more years (up to 5: 2015–2019) show up first.
 
 ---
 
-## KPI 3 — `Predicho vs Actual` (Scatter plot)
+## KPI 3 — `Predicted vs Actual` (Scatter plot)
 
-**Propósito:** validar visualmente que el modelo no diverge del valor real; idealmente los puntos caen sobre la diagonal `y = x`.
+**Purpose:** visually verify that the model does not diverge from the actual value; ideally the points fall on the `y = x` diagonal.
 
-**Configuración en Looker Studio:**
+**Looker Studio configuration:**
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
 | **Chart type** | Scatter chart |
-| **Nombre del componente** | `Predicho vs Actual` |
-| **Custom Query** | KPI 3 de `sql/kpis.sql` |
-| **Dimension** | _(ninguna; cada fila es un punto)_ |
+| **Component name** | `Predicted vs Actual` |
+| **Custom Query** | KPI 3 from `sql/kpis.sql` |
+| **Dimension** | _(none; each row is a point)_ |
 | **Metric X** | `actual_score` |
 | **Metric Y** | `predicted_score` |
-| **Bubble size** | _(ninguna)_ |
+| **Bubble size** | _(none)_ |
 
-**Estilo:**
-- Point shape: círculo, tamaño 6 px.
-- Color: `#388E3C` con opacidad 50 %.
-- Activar **Trendline** → Linear → color `#D32F2F`, grosor 2 px.
-- Ejes con mismos límites: min `0`, max `10`, intervalo `1`.
-- Habilitar **Show axis title** en ambos ejes (`Happiness real`, `Happiness predicha`).
+**Style:**
+- Point shape: circle, size 6 px.
+- Color: `#388E3C` at 50% opacity.
+- Enable **Trendline** → Linear → color `#D32F2F`, 2 px thick.
+- Both axes with the same limits: min `0`, max `10`, interval `1`.
+- Enable **Show axis title** on both axes (`Actual happiness`, `Predicted happiness`).
 
-**Lectura esperada:** nube de puntos a 45° con dispersión simétrica; la línea de tendencia debe quedar prácticamente sobre la diagonal.
+**Expected read:** a 45° point cloud with symmetric dispersion; the trendline should sit almost exactly on the diagonal.
 
 ---
 
-## KPI 4 — `Tendencia Diaria de Predicciones` (Time series)
+## KPI 4 — `Daily Prediction Trend` (Time series)
 
-**Propósito:** evidenciar que el pipeline corre en el tiempo y comparar promedio predicho vs promedio real día a día.
+> ⚠️ **Not implemented in the final dashboard.** The pipeline was only executed once, so every record in `fact_predictions` shares essentially the same `prediction_timestamp`. The resulting chart would collapse into a single point and provide no useful information. The query is kept in `sql/kpis.sql` for future runs with multi-day data.
 
-**Configuración en Looker Studio:**
+**Purpose:** show that the pipeline runs over time and compare the average predicted vs. the average actual score day by day.
 
-| Campo | Valor |
+**Looker Studio configuration (for reference):**
+
+| Field | Value |
 |---|---|
 | **Chart type** | Time series |
-| **Nombre del componente** | `Tendencia Diaria de Predicciones` |
-| **Custom Query** | KPI 4 de `sql/kpis.sql` |
-| **Time Dimension** | `day` (tipo Date) |
-| **Metrics** | `avg_predicted`, `avg_actual` (dos series) |
-| **Sort** | `day` ascendente |
+| **Component name** | `Daily Prediction Trend` |
+| **Custom Query** | KPI 4 from `sql/kpis.sql` |
+| **Time Dimension** | `day` (Date type) |
+| **Metrics** | `avg_predicted`, `avg_actual` (two series) |
+| **Sort** | `day` ascending |
 
-**Estilo:**
-- Serie `avg_predicted`: línea sólida color `#1976D2`, ancho 2 px, puntos visibles.
-- Serie `avg_actual`: línea discontinua (dashed) color `#388E3C`, ancho 2 px.
-- Mostrar leyenda al fondo (Bottom).
+**Style:**
+- `avg_predicted` series: solid line, color `#1976D2`, 2 px thick, points visible.
+- `avg_actual` series: dashed line, color `#388E3C`, 2 px thick.
+- Show legend at the bottom.
 - Y-axis: min `0`, max `10`.
 
-**Lectura esperada:** ambas líneas se mueven muy juntas; brechas grandes en algún día indican lotes con países atípicos.
+**Expected read:** both lines should track each other very closely; large gaps on any given day point to batches dominated by atypical countries.
 
-> **Nota:** si todo el streaming corre en un solo día, esta gráfica colapsa a un único punto. En ese caso, cambiar el `DATE()` por `DATE_FORMAT(prediction_timestamp, '%Y-%m-%d %H:%i')` en `sql/kpis.sql` para granularidad por minuto y volver a importar la query.
+> **Note:** if all streaming happens on the same day, this chart collapses to a single point. In that case, replace `DATE()` with `DATE_FORMAT(prediction_timestamp, '%Y-%m-%d %H:%i')` in `sql/kpis.sql` for per-minute granularity and re-import the query.
 
 ---
 
-## KPI 5 — `Top 10 Países con Mayor Error` (Bar chart horizontal)
+## KPI 5 — `Top 10 Countries by Error` (Horizontal bar chart)
 
-**Propósito:** identificar los países donde el modelo se equivoca más en promedio (foco para iterar features o mapeo).
+**Purpose:** identify the countries where the model makes the largest average mistake (a starting point to iterate features or mappings).
 
-**Configuración en Looker Studio:**
+**Looker Studio configuration:**
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
 | **Chart type** | Bar chart (horizontal) |
-| **Nombre del componente** | `Top 10 Países con Mayor Error` |
-| **Custom Query** | KPI 5 de `sql/kpis.sql` |
+| **Component name** | `Top 10 Countries by Error` |
+| **Custom Query** | KPI 5 from `sql/kpis.sql` |
 | **Dimension** | `country_name` |
-| **Metric** | `mae` (SUM, ya viene agregado) |
-| **Sort** | `mae` descendente |
-| **Rows per page** | 10 (fijo) |
+| **Metric** | `mae` (SUM, already aggregated) |
+| **Sort** | `mae` descending |
+| **Rows per page** | 10 (fixed) |
 
-**Estilo:**
-- Bars color `#D32F2F` con gradiente al `#F57C00` (Conditional color formatting por valor).
-- Data labels: 3 decimales.
-- Title del eje X: `MAE absoluto`.
-- Ocultar leyenda.
+**Style:**
+- Bars colored `#D32F2F` with a gradient toward `#F57C00` (Conditional color formatting by value).
+- Data labels: 3 decimals.
+- X-axis title: `Absolute MAE`.
+- Hide legend.
 
-**Lectura esperada:** los 10 países en orden descendente de error. Comúnmente outliers regionales (regiones con `Region=Unknown` después del backfill).
+**Expected read:** the 10 countries sorted by error in descending order. Often regional outliers (rows where `Region=Unknown` after backfill).
 
 ---
 
-## KPI 6 — `Distribución de Errores` (Column chart / histograma)
+## KPI 6 — `Error Distribution` (Column chart / histogram)
 
-**Propósito:** verificar que los residuos del modelo son aproximadamente simétricos en torno a 0 (supuesto de regresión lineal).
+**Purpose:** verify that the model residuals are roughly symmetric around 0 (a linear regression assumption).
 
-**Configuración en Looker Studio:**
+**Looker Studio configuration:**
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
 | **Chart type** | Column chart |
-| **Nombre del componente** | `Distribución de Errores` |
-| **Custom Query** | KPI 6 de `sql/kpis.sql` |
-| **Dimension** | `error_bucket` (rango: `-2.0` a `+2.0` aprox.) |
+| **Component name** | `Error Distribution` |
+| **Custom Query** | KPI 6 from `sql/kpis.sql` |
+| **Dimension** | `error_bucket` (range: approximately `-2.0` to `+2.0`) |
 | **Metric** | `freq` (SUM) |
-| **Sort** | `error_bucket` ascendente |
+| **Sort** | `error_bucket` ascending |
 
-**Estilo:**
-- Color de columnas: `#1976D2`.
-- Mostrar **Reference line** vertical en `x = 0` color `#D32F2F`, grosor 2 px, label `error = 0`.
-- Y-axis: `Frecuencia`. X-axis: `Error (predicho − actual)`.
-- Activar data labels solo si hay ≤ 30 buckets.
+**Style:**
+- Column color: `#1976D2`.
+- Show a vertical **Reference line** at `x = 0`, color `#D32F2F`, 2 px thick, label `error = 0`.
+- Y-axis: `Frequency`. X-axis: `Error (predicted − actual)`.
+- Enable data labels only when there are ≤ 30 buckets.
 
-**Lectura esperada:** campana centrada en 0 con colas simétricas; si está sesgada hacia un lado, el modelo sobre/subestima sistemáticamente.
+**Expected read:** a bell shape centered at 0 with symmetric tails; if it is skewed, the model systematically over/underestimates.
 
 ---
 
-## KPI 7 — `Estado de Procesamiento` (Pie chart)
+## KPI 7 — `Processing Status` (Pie chart)
 
-**Propósito:** mostrar el reparto entre eventos exitosos y las distintas categorías de fallo (validación del producer con ruido al 5 %).
+**Purpose:** show the split between successful events and the different failure categories (producer validation with 5% noise injection).
 
-**Configuración en Looker Studio:**
+**Looker Studio configuration:**
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
 | **Chart type** | Pie chart |
-| **Nombre del componente** | `Estado de Procesamiento` |
-| **Custom Query** | KPI 7 de `sql/kpis.sql` |
+| **Component name** | `Processing Status` |
+| **Custom Query** | KPI 7 from `sql/kpis.sql` |
 | **Dimension** | `processing_status` |
 | **Metric** | `n` (SUM) |
-| **Sort** | `n` descendente |
+| **Sort** | `n` descending |
 
-**Estilo (colores por slice — Conditional dimension color):**
+**Style (per-slice colors — Conditional dimension color):**
 - `VALID` → `#388E3C`.
 - `INVALID_SCHEMA` → `#616161`.
 - `INVALID_VALUES` → `#F57C00`.
 - `PREDICTION_ERROR` → `#7B1FA2`.
-- Donut hole: 50 %.
-- Mostrar porcentaje + valor absoluto en las etiquetas (Show data labels → Percentage and value).
-- Leyenda a la derecha.
+- Donut hole: 50%.
+- Show percentage + absolute value on labels (Show data labels → Percentage and value).
+- Legend on the right.
 
-**Lectura esperada:** ~95 % VALID en modo con ruido, 100 % VALID en modo `--clean`.
+**Expected read:** ~95% VALID under noisy mode, 100% VALID under `--clean`.
 
 ---
 
-## KPI 8 — `Throughput por Minuto` (Time series + área)
+## KPI 8 — `Throughput per Minute` (Area time series)
 
-**Propósito:** medir la velocidad efectiva del consumer (eventos procesados por minuto) y detectar caídas.
+**Purpose:** measure the consumer's effective speed (events processed per minute) and detect dips.
 
-**Configuración en Looker Studio:**
+**Looker Studio configuration:**
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
 | **Chart type** | Time series (area) |
-| **Nombre del componente** | `Throughput por Minuto` |
-| **Custom Query** | KPI 8 de `sql/kpis.sql` |
-| **Time Dimension** | `minute_bucket` (tipo Date Hour Minute) |
+| **Component name** | `Throughput per Minute` |
+| **Custom Query** | KPI 8 from `sql/kpis.sql` |
+| **Time Dimension** | `minute_bucket` (Date Hour Minute type) |
 | **Metric** | `events` (SUM) |
-| **Sort** | `minute_bucket` ascendente |
+| **Sort** | `minute_bucket` ascending |
 
-**Estilo:**
-- Area color `#1976D2` con opacidad 30 %, línea superior sólida 2 px.
-- Y-axis: `Eventos/minuto`. X-axis: ocultar título.
-- Activar **Reference line horizontal** en el promedio (formula: `AVG(events)`) color `#388E3C`, label `Media`.
+**Style:**
+- Area color `#1976D2` at 30% opacity, solid top line 2 px thick.
+- Y-axis: `Events/minute`. X-axis: hide title.
+- Add a horizontal **Reference line** at the average (formula: `AVG(events)`), color `#388E3C`, label `Mean`.
 
-**Lectura esperada:** con `PRODUCER_DELAY_SECONDS=0.5` esperar ~120 eventos/minuto. Si baja drásticamente, el consumer o MySQL están saturados.
+**Expected read:** with `PRODUCER_DELAY_SECONDS=0.5` expect ~120 events per minute. If it drops sharply, the consumer or MySQL are saturated.
 
 ---
 
-## Layout final recomendado
+## Recommended final layout
 
-Tablero de **2 columnas × 4 filas** (1240 × 1600 px aprox.):
+A **2-column × 4-row** board (≈ 1240 × 1600 px):
 
 ```
 +---------------------------+---------------------------+
-| KPI 1: MAE Global         | KPI 7: Estado Procesamto.|
+| KPI 1: Global MAE         | KPI 7: Processing Status  |
 | (Scorecard)               | (Pie chart)               |
 +---------------------------+---------------------------+
-| KPI 3: Predicho vs Actual | KPI 6: Distribución Err.  |
+| KPI 3: Predicted vs Actual| KPI 6: Error Distribution |
 | (Scatter)                 | (Column chart)            |
 +---------------------------+---------------------------+
-| KPI 4: Tendencia Diaria   | KPI 8: Throughput/min     |
-| (Time series)             | (Time series area)        |
+| KPI 4: Daily Trend        | KPI 8: Throughput/min     |
+| (Time series — skipped)   | (Time series area)        |
 +---------------------------+---------------------------+
-| KPI 2: Predicciones País  | KPI 5: Top 10 Error       |
+| KPI 2: Predictions/Country| KPI 5: Top 10 Error       |
 | (Bar chart)               | (Bar chart)               |
 +---------------------------+---------------------------+
 ```
 
-### Header del dashboard
-- **Texto principal:** `Streaming Happiness Predictions Dashboard`
-- **Subtítulo:** `World Happiness Report 2015–2019 · Kafka + MySQL + Linear Regression`
+### Dashboard header
+- **Main text:** `Happiness in Motion: Real-Time ML Predictions over a Kafka Pipeline`
+- **Subtitle:** `World Happiness Report 2015–2019 · Kafka + MySQL + Linear Regression`
 - **Footer:** `Workshop-3 — ETL G01 — 2026-1 — UAO`
-- **Logo:** insertar `dashboards/screenshots/uao_logo.png` en la esquina superior derecha (si está disponible).
+- **Logo:** insert `dashboards/screenshots/uao_logo.png` in the top-right corner (if available).
 
-### Filtros globales (opcional pero recomendado)
-Añadir en la parte superior un **Control → Date range** que filtre `prediction_timestamp` y un **Control → Drop-down list** que filtre `country_name`. Eso permite explorar el dashboard sin tocar SQL.
+### Global filters (optional but recommended)
+Add at the top a **Control → Date range** filtering `prediction_timestamp` and a **Control → Drop-down list** filtering `country_name`. This lets viewers explore the dashboard without touching SQL.
 
 ---
 
-## Checklist de verificación final
+## Final verification checklist
 
-Antes de tomar el screenshot final que va a `dashboards/screenshots/dashboard_complete.png`:
+Before taking the final screenshot that goes to `dashboards/screenshots/dashboard_complete.png`:
 
-- [ ] Los 8 charts tienen el **nombre exacto** indicado en este documento.
-- [ ] Las queries de los 8 charts coinciden literalmente con los bloques de `sql/kpis.sql` (sin punto y coma final si Looker se queja).
-- [ ] La fuente de datos no muestra `Configuration incomplete` en ningún chart.
-- [ ] El número del Scorecard (KPI 1) coincide con la consulta directa en MySQL: `SELECT AVG(ABS(prediction_error)) FROM fact_predictions;`.
-- [ ] El total de la pie (KPI 7) suma `COUNT(*) FROM raw_happiness_events`.
-- [ ] `COUNT(fact_predictions) == COUNT(VALID en raw_happiness_events)` — invariante crítica del pipeline.
-- [ ] Capturar 1 screenshot global + 1 por chart en `dashboards/screenshots/`.
+- [ ] The 8 charts have the **exact name** listed in this document.
+- [ ] The 8 chart queries match the blocks in `sql/kpis.sql` literally (drop the trailing semicolon if Looker complains).
+- [ ] No chart shows `Configuration incomplete` for its data source.
+- [ ] The Scorecard (KPI 1) value matches the direct MySQL query: `SELECT AVG(ABS(prediction_error)) FROM fact_predictions;`.
+- [ ] The pie total (KPI 7) equals `COUNT(*) FROM raw_happiness_events`.
+- [ ] `COUNT(fact_predictions) == COUNT(VALID in raw_happiness_events)` — critical pipeline invariant.
+- [ ] Capture 1 global screenshot plus 1 per chart into `dashboards/screenshots/`.
