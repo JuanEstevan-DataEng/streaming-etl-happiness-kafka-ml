@@ -24,3 +24,4 @@ Thumbs.db
 *.md
 !README.md
 !dashboards/make_dashboard.md
+!data/raw/*
