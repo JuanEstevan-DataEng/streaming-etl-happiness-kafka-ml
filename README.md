@@ -142,7 +142,7 @@ PRODUCER_NOISE_RATIO=0.05
 
 ## 7. Dashboard (PDF Suggested)
 
-The pipeline results are visualized in **Looker Studio (now Google Data Studio)**. You can see a complete guide for the creation of the dashboard in `/dashboards/make_dashboard.md`, it is in spanish for the author comfort. 
+The pipeline results are visualized in **Looker Studio (now Google Data Studio)**. You can see a complete guide for the creation of the dashboard in `/dashboards/make_dashboard.md`.
 
 ### Metrics Explained
 The dashboard uses 8 KPIs (minimum 4 suggested by PDF, 4 assumed):
