@@ -1,0 +1,5 @@
+!data/.gitkeep
+ *.yaml
+ *.md
+ !README.md
+.env
