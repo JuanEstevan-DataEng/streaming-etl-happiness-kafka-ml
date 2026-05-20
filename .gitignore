@@ -1,7 +1,26 @@
-!data/.gitkeep
+# Python
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
+
+# Environment
+.env
+
+# Generated artifacts
+*.pkl
 *.csv
+!**/.gitkeep
+
+# Jupyter executed copies
+*_executed.ipynb
+
+# OS
+.DS_Store
+Thumbs.db
+
 *.yaml
+!docker-compose.yaml
 *.md
 !README.md
-.env
-.venv
+!dashboards/make_dashboard.md
