@@ -1,5 +1,4 @@
 # Docker Compose for the workshop infrastructure: Zookeeper, Kafka, MySQL
-# ES: Docker Compose para la infraestructura del workshop: Zookeeper, Kafka, MySQL
 
 services:
   zookeeper:
@@ -22,7 +21,6 @@ services:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       # Advertised listener must point to localhost so host-side Python clients can connect
-      # ES: El advertised listener apunta a localhost para que los clientes Python del host conecten
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
@@ -42,7 +40,6 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
       # Auto-initialize schema on first boot
-      # ES: Inicializa el schema automáticamente en el primer arranque
       - ./sql/create_tables.sql:/docker-entrypoint-initdb.d/01_create_tables.sql:ro
 
 volumes:
