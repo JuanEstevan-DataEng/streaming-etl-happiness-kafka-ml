@@ -1,5 +1,4 @@
 """SQLAlchemy engine factory and CRUD helpers for the streaming pipeline."""
-# ES: Factory de engine SQLAlchemy + helpers CRUD para el pipeline de streaming
 
 import json
 from typing import Optional
@@ -11,7 +10,6 @@ _engine: Optional[Engine] = None
 
 def get_engine() -> Engine:
     """Return a singleton SQLAlchemy engine."""
-    # ES: Devuelve un engine SQLAlchemy singleton
     global _engine
     if _engine is None:
         _engine = create_engine(MYSQL_URL, pool_pre_ping=True, future=True)
@@ -20,9 +18,7 @@ def get_engine() -> Engine:
 def insert_raw_event(payload_text: str, offset: int, partition: int,
                      status: str, error_detail: Optional[str] = None) -> int:
     """Insert a raw event row and return its raw_event_id."""
-    # ES: Inserta un evento crudo y devuelve el raw_event_id
     # Wrap non-JSON strings so MySQL never crashes on the JSON cast
-    # ES: Envuelve el string como JSON string si no es JSON parseable
     try:
         json.loads(payload_text)
         payload_for_db = payload_text
@@ -42,7 +38,6 @@ def insert_raw_event(payload_text: str, offset: int, partition: int,
 def update_raw_status(raw_event_id: int, status: str,
                       error_detail: Optional[str] = None) -> None:
     """Update processing_status of a previously inserted raw event."""
-    # ES: Actualiza el processing_status de un evento crudo ya insertado
     sql = text("""UPDATE raw_happiness_events
                   SET processing_status = :s, error_detail = :e
                   WHERE raw_event_id = :id""")
@@ -51,7 +46,6 @@ def update_raw_status(raw_event_id: int, status: str,
 
 def upsert_country(country_name: str, region: Optional[str] = None) -> int:
     """Insert or fetch a country_id by name."""
-    # ES: Inserta o recupera country_id por nombre
     with get_engine().begin() as conn:
         conn.execute(text("""INSERT IGNORE INTO dim_country (country_name, region)
                               VALUES (:n, :r)"""), {"n": country_name, "r": region})
@@ -61,7 +55,6 @@ def upsert_country(country_name: str, region: Optional[str] = None) -> int:
 
 def upsert_date(year: int) -> int:
     """Insert or fetch a date_id by year."""
-    # ES: Inserta o recupera date_id por año
     with get_engine().begin() as conn:
         conn.execute(text("INSERT IGNORE INTO dim_date (year) VALUES (:y)"), {"y": year})
         return conn.execute(text("SELECT date_id FROM dim_date WHERE year = :y"),
@@ -69,7 +62,6 @@ def upsert_date(year: int) -> int:
 
 def upsert_dim_raw_event(raw_event_id: int, country_name: str, year: int) -> None:
     """Insert into dim_raw_event for joins; idempotent via INSERT IGNORE on PK."""
-    # ES: Inserta en dim_raw_event para joins; idempotente vía INSERT IGNORE
     with get_engine().begin() as conn:
         conn.execute(text("""INSERT IGNORE INTO dim_raw_event
                               (raw_event_id, country_name, year)
@@ -80,7 +72,6 @@ def insert_prediction(raw_event_id: int, country_id: int, date_id: int,
                       actual: Optional[float], predicted: float,
                       error: Optional[float]) -> int:
     """Insert a row in fact_predictions and return prediction_id."""
-    # ES: Inserta una fila en fact_predictions y devuelve prediction_id
     sql = text("""INSERT INTO fact_predictions
                    (raw_event_id, country_id, date_id,
                     actual_score, predicted_score, prediction_error)
@@ -92,7 +83,6 @@ def insert_prediction(raw_event_id: int, country_id: int, date_id: int,
 
 def truncate_tables() -> None:
     """Clear all records from the database for a fresh demonstration."""
-    # ES: Limpia todos los registros de la BD para una demostración en limpio
     with get_engine().begin() as conn:
         conn.execute(text("SET FOREIGN_KEY_CHECKS = 0;"))
         conn.execute(text("TRUNCATE TABLE fact_predictions;"))
