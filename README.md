@@ -228,3 +228,6 @@ python kafka/producer.py
 ngrok tcp 3307
 # Connect Looker Studio (now Google Data Studio) to the ngrok address as explained in Section 7
 ```
+## 11. Video
+
+Link: https://drive.google.com/file/d/1TaNchNOxSldXcZcdwWgjlsRB1eS4kN-z/view?usp=sharing

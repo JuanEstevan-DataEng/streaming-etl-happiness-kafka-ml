@@ -27,7 +27,7 @@ This document covers **the full flow** required to build the workshop dashboard:
 SQL to execute:
 
 ```sql
-CREATE USER IF NOT EXISTS 'looker'@'%' IDENTIFIED BY 'looker_pwd_changeme';
+CREATE USER IF NOT EXISTS 'looker'@'%' IDENTIFIED WITH mysql_native_password BY 'looker_pwd_changeme';
 GRANT SELECT ON happiness.* TO 'looker'@'%';
 FLUSH PRIVILEGES;
 ```
@@ -36,7 +36,7 @@ FLUSH PRIVILEGES;
 
 ```bash
 docker exec -i ws3_mysql mysql -uroot -pchangeme_root happiness <<'SQL'
-CREATE USER IF NOT EXISTS 'looker'@'%' IDENTIFIED BY 'looker_pwd_changeme';
+CREATE USER IF NOT EXISTS 'looker'@'%' IDENTIFIED WITH mysql_native_password BY 'looker_pwd_changeme';
 GRANT SELECT ON happiness.* TO 'looker'@'%';
 FLUSH PRIVILEGES;
 SQL
@@ -47,7 +47,7 @@ SQL
 > ```bash
 > set -a && source .env && set +a
 > docker exec -i ws3_mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" happiness <<'SQL'
-> CREATE USER IF NOT EXISTS 'looker'@'%' IDENTIFIED BY 'looker_pwd_changeme';
+> CREATE USER IF NOT EXISTS 'looker'@'%' IDENTIFIED WITH mysql_native_password BY 'looker_pwd_changeme';
 > GRANT SELECT ON happiness.* TO 'looker'@'%';
 > FLUSH PRIVILEGES;
 > SQL
