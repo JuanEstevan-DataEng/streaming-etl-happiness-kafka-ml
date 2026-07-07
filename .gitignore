@@ -15,6 +15,9 @@ __pycache__/
 # Jupyter executed copies
 *_executed.ipynb
 
+# Presentation / scratch notes (not part of the deliverable)
+presentation_script.txt
+
 # OS
 .DS_Store
 Thumbs.db
